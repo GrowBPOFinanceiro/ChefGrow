@@ -17,8 +17,8 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
             from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager }
-            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getDatabase, ref, set, get }
+            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBv6WZuGQn4ibOpzFPAq18p1n4h0_5UJ9o",
@@ -26,19 +26,18 @@
             projectId: "chefgrow-9f0d5",
             storageBucket: "chefgrow-9f0d5.firebasestorage.app",
             messagingSenderId: "747430178703",
-            appId: "1:747430178703:web:e5be1b14256a40a32e65fa"
+            appId: "1:747430178703:web:e5be1b14256a40a32e65fa",
+            databaseURL: "https://chefgrow-9f0d5-default-rtdb.firebaseio.com"
         };
 
         const app = initializeApp(firebaseConfig);
         window._fbAuth = getAuth(app);
-        
-        // experimentalForceLongPolling fixes "client is offline" on GitHub Pages
-        window._fbDb = initializeFirestore(app, {
-            experimentalForceLongPolling: true,
-            localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-        });
-        
-        window._fbFns  = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, doc, setDoc, getDoc };
+        window._fbDb   = getDatabase(app);
+        window._fbFns  = { 
+            createUserWithEmailAndPassword, signInWithEmailAndPassword, 
+            signOut, onAuthStateChanged, sendPasswordResetEmail,
+            ref, set, get
+        };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
 
@@ -98,12 +97,12 @@ async function dbLoad(userId) {
     const { db, fns } = FB();
     try {
         const [iSnap, fSnap] = await Promise.all([
-            fns.getDoc(fns.doc(db,'users',userId,'data','insumos')),
-            fns.getDoc(fns.doc(db,'users',userId,'data','fichas')),
+            fns.get(fns.ref(db, `users/${userId}/insumos`)),
+            fns.get(fns.ref(db, `users/${userId}/fichas`)),
         ]);
         const result = {
-            insumos: iSnap.exists() ? iSnap.data().list : SEED_INSUMOS,
-            fichas:  fSnap.exists() ? fSnap.data().list : SEED_FICHAS,
+            insumos: iSnap.exists() ? iSnap.val() : SEED_INSUMOS,
+            fichas:  fSnap.exists() ? fSnap.val() : SEED_FICHAS,
         };
         console.log('[DB] Loaded:', result.insumos.length, 'insumos,', result.fichas.length, 'fichas');
         return result;
@@ -116,7 +115,7 @@ async function dbSave(userId, type, list) {
     if (!userId) { console.error('[DB] Save called without userId!'); return; }
     const { db, fns } = FB();
     try {
-        await fns.setDoc(fns.doc(db,'users',userId,'data',type), { list });
+        await fns.set(fns.ref(db, `users/${userId}/${type}`), list);
         console.log('[DB] Saved', type, '- items:', list.length);
     } catch(e) {
         console.error('[DB] Save error:', type, e.code, e.message);
