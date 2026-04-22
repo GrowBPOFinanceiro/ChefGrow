@@ -440,6 +440,7 @@ function App() {
     const [tab,setTab]           = useState('dashboard');
     const [editId,setEditId]     = useState(null);
     const timer = useRef({});
+    const userRef = useRef(null);
 
     useEffect(()=>{
         let unsubscribe = null;
@@ -461,29 +462,43 @@ function App() {
                         setFichasSt(SEED_FICHAS);
                     }
                     setLoading(false);
+                    userRef.current = u;
                     setUser(u);
                 } else {
                     setLoading(false);
+                    userRef.current = null;
                     setUser(null);
                 }
             });
         };
-        if (window._fbAuth && window._fbFns) startAuth();
-        else window.addEventListener('firebaseReady', startAuth, {once:true});
+        if (window._fbAuth && window._fbFns) {
+            startAuth();
+        } else {
+            window.addEventListener('firebaseReady', startAuth, {once:true});
+            // Fallback: poll briefly in case event already fired
+            const check = setInterval(()=>{ if(window._fbAuth && window._fbFns){ clearInterval(check); startAuth(); } }, 50);
+            setTimeout(()=>clearInterval(check), 5000);
+        }
         return () => { if (unsubscribe) unsubscribe(); };
     },[]);
 
-    const persist = (type,data,uid) => {
-        const userId = uid || (user && user.uid);
-        if (!userId) return;
+    // Keep userRef always current so saves never lose the userId
+    useEffect(()=>{ userRef.current = user; },[user]);
+
+    const persist = (type, data) => {
+        const userId = userRef.current && userRef.current.uid;
+        if (!userId) { console.warn('persist: no userId, skipping save'); return; }
+        // Save immediately AND with debounce as backup
+        dbSave(userId, type, data).catch(e => console.error('Save error:', e));
         clearTimeout(timer.current[type]);
-        timer.current[type] = setTimeout(()=>dbSave(userId,type,data), 800);
+        timer.current[type] = setTimeout(()=>dbSave(userId,type,data).catch(console.error), 2000);
     };
 
     const setInsumos = d => { setInsumosSt(d); persist('insumos',d); };
     const setFichas  = d => { setFichasSt(d);  persist('fichas',d); };
 
     const logout = async () => {
+        userRef.current = null;
         await window._fbFns.signOut(window._fbAuth);
         setUser(null); setInsumosSt([]); setFichasSt([]);
     };
