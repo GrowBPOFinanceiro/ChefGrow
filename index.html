@@ -90,18 +90,32 @@ const SEED_FICHAS = [{
 
 async function dbLoad(userId) {
     const { db, fns } = FB();
-    const [iSnap, fSnap] = await Promise.all([
-        fns.getDoc(fns.doc(db,'users',userId,'data','insumos')),
-        fns.getDoc(fns.doc(db,'users',userId,'data','fichas')),
-    ]);
-    return {
-        insumos: iSnap.exists() ? iSnap.data().list : SEED_INSUMOS,
-        fichas:  fSnap.exists() ? fSnap.data().list : SEED_FICHAS,
-    };
+    try {
+        const [iSnap, fSnap] = await Promise.all([
+            fns.getDoc(fns.doc(db,'users',userId,'data','insumos')),
+            fns.getDoc(fns.doc(db,'users',userId,'data','fichas')),
+        ]);
+        const result = {
+            insumos: iSnap.exists() ? iSnap.data().list : SEED_INSUMOS,
+            fichas:  fSnap.exists() ? fSnap.data().list : SEED_FICHAS,
+        };
+        console.log('[DB] Loaded:', result.insumos.length, 'insumos,', result.fichas.length, 'fichas');
+        return result;
+    } catch(e) {
+        console.error('[DB] Load error:', e.code, e.message);
+        throw e;
+    }
 }
 async function dbSave(userId, type, list) {
+    if (!userId) { console.error('[DB] Save called without userId!'); return; }
     const { db, fns } = FB();
-    await fns.setDoc(fns.doc(db,'users',userId,'data',type), { list });
+    try {
+        await fns.setDoc(fns.doc(db,'users',userId,'data',type), { list });
+        console.log('[DB] Saved', type, '- items:', list.length);
+    } catch(e) {
+        console.error('[DB] Save error:', type, e.code, e.message);
+        throw e;
+    }
 }
 
 /* ─── Auth Screen ────────────────────────────────────────────────────────── */
@@ -482,20 +496,19 @@ function App() {
         return () => { if (unsubscribe) unsubscribe(); };
     },[]);
 
-    // Keep userRef always current so saves never lose the userId
+    // Keep userRef always current
     useEffect(()=>{ userRef.current = user; },[user]);
 
-    const persist = (type, data) => {
-        const userId = userRef.current && userRef.current.uid;
-        if (!userId) { console.warn('persist: no userId, skipping save'); return; }
-        // Save immediately AND with debounce as backup
-        dbSave(userId, type, data).catch(e => console.error('Save error:', e));
-        clearTimeout(timer.current[type]);
-        timer.current[type] = setTimeout(()=>dbSave(userId,type,data).catch(console.error), 2000);
+    const saveNow = (type, data) => {
+        const uid = userRef.current ? userRef.current.uid : null;
+        if (!uid) { console.warn('[DB] saveNow: no user logged in, cannot save'); return; }
+        dbSave(uid, type, data)
+            .then(()=> console.log('[DB] saveNow success:', type))
+            .catch(e => console.error('[DB] saveNow failed:', type, e.code, e.message));
     };
 
-    const setInsumos = d => { setInsumosSt(d); persist('insumos',d); };
-    const setFichas  = d => { setFichasSt(d);  persist('fichas',d); };
+    const setInsumos = d => { setInsumosSt(d); saveNow('insumos', d); };
+    const setFichas  = d => { setFichasSt(d);  saveNow('fichas',  d); };
 
     const logout = async () => {
         userRef.current = null;
