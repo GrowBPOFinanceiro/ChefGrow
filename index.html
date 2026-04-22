@@ -17,7 +17,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
             from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc }
+        import { getFirestore, doc, setDoc, getDoc, initializeFirestore, persistentLocalCache, persistentMultipleTabManager }
             from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -31,7 +31,13 @@
 
         const app = initializeApp(firebaseConfig);
         window._fbAuth = getAuth(app);
-        window._fbDb   = getFirestore(app);
+        
+        // experimentalForceLongPolling fixes "client is offline" on GitHub Pages
+        window._fbDb = initializeFirestore(app, {
+            experimentalForceLongPolling: true,
+            localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+        });
+        
         window._fbFns  = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, doc, setDoc, getDoc };
         window.dispatchEvent(new Event('firebaseReady'));
     </script>
