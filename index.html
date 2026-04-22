@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChefGrow - Gestão Inteligente</title>
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+ 
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail }
+            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc }
+            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+ 
+        const firebaseConfig = {
+            apiKey: "AIzaSyBv6WZuGQn4ibOpzFPAq18p1n4h0_5UJ9o",
+            authDomain: "chefgrow-9f0d5.firebaseapp.com",
+            projectId: "chefgrow-9f0d5",
+            storageBucket: "chefgrow-9f0d5.firebasestorage.app",
+            messagingSenderId: "747430178703",
+            appId: "1:747430178703:web:e5be1b14256a40a32e65fa"
+        };
+ 
+        const app = initializeApp(firebaseConfig);
+        window._fbAuth = getAuth(app);
+        window._fbDb   = getFirestore(app);
+        window._fbFns  = { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail, doc, setDoc, getDoc };
+        window.dispatchEvent(new Event('firebaseReady'));
+    </script>
+ 
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        tailwind.config = {
+            theme: { extend: { colors: { brand: { 50:'#fdf8f6',100:'#f2e8e5',500:'#d97757',600:'#c26040',900:'#4a2c24' } } } }
+        }
+    </script>
+    <style>
+        body{font-family:'Inter',sans-serif;background-color:#fdf8f6}
+        .glass-panel{background:rgba(255,255,255,.9);backdrop-filter:blur(10px);box-shadow:0 4px 6px -1px rgba(0,0,0,.05),0 2px 4px -1px rgba(0,0,0,.03)}
+        input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+        .custom-scroll::-webkit-scrollbar{width:6px}.custom-scroll::-webkit-scrollbar-track{background:#f1f1f1;border-radius:4px}.custom-scroll::-webkit-scrollbar-thumb{background:#d97757;border-radius:4px}
+        .toggle-switch{position:relative;display:inline-flex;align-items:center;cursor:pointer;user-select:none}
+        .toggle-switch input{opacity:0;width:0;height:0;position:absolute}
+        .toggle-track{width:44px;height:24px;background-color:#e5e7eb;border-radius:9999px;transition:background-color .2s;position:relative;flex-shrink:0}
+        .toggle-track.on{background-color:#d97757}
+        .toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:white;border-radius:9999px;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+        .toggle-track.on .toggle-thumb{transform:translateX(20px)}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        .fade-in{animation:fadeIn .3s ease forwards}
+        @keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}
+        .kg-box{background:linear-gradient(135deg,#fff7f5,#fef2ee);border:1.5px solid #f0b69e;border-radius:12px;padding:12px 16px}
+    </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+ 
+/* ─── utils ─────────────────────────────────────────────────────────────── */
+const uid  = () => Math.random().toString(36).substr(2,9);
+const $R   = v  => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
+const $P   = v  => new Intl.NumberFormat('pt-BR',{style:'percent',maximumFractionDigits:2}).format(v||0);
+const $W   = g  => g>=1000?`${(g/1000).toFixed(2)} kg`:`${g.toFixed(0)} g`;
+const UNI  = ['g','ml','un'];
+ 
+const FB = () => ({ auth:window._fbAuth, db:window._fbDb, fns:window._fbFns });
+ 
+/* ─── Firestore helpers ──────────────────────────────────────────────────── */
+const SEED_INSUMOS = [
+    {id:'1',nome:'Farinha de Trigo',qtdEmbalagem:1000,unidade:'g',precoEmbalagem:6.5},
+    {id:'2',nome:'Açúcar Refinado',qtdEmbalagem:1000,unidade:'g',precoEmbalagem:5},
+    {id:'3',nome:'Chocolate em Pó 50%',qtdEmbalagem:500,unidade:'g',precoEmbalagem:15},
+    {id:'4',nome:'Ovo',qtdEmbalagem:30,unidade:'un',precoEmbalagem:21},
+    {id:'5',nome:'Leite Condensado',qtdEmbalagem:395,unidade:'g',precoEmbalagem:6.8},
+    {id:'6',nome:'Manteiga',qtdEmbalagem:500,unidade:'g',precoEmbalagem:22},
+];
+const SEED_FICHAS = [{
+    id:'1',nome:'Bolo de Chocolate Simples',
+    ingredientes:[{insumoId:'1',qtdUtilizada:250},{insumoId:'2',qtdUtilizada:200},{insumoId:'3',qtdUtilizada:100},{insumoId:'4',qtdUtilizada:3},{insumoId:'6',qtdUtilizada:100}],
+    precoVenda:45,precoVendaAtual:40,usarCmvPorKg:false,precoVendaPorKg:0,precoVendaAtualPorKg:0,revisaoPendente:false
+}];
+ 
+async function dbLoad(userId) {
+    const { db, fns } = FB();
+    const [iSnap, fSnap] = await Promise.all([
+        fns.getDoc(fns.doc(db,'users',userId,'data','insumos')),
+        fns.getDoc(fns.doc(db,'users',userId,'data','fichas')),
+    ]);
+    return {
+        insumos: iSnap.exists() ? iSnap.data().list : SEED_INSUMOS,
+        fichas:  fSnap.exists() ? fSnap.data().list : SEED_FICHAS,
+    };
+}
+async function dbSave(userId, type, list) {
+    const { db, fns } = FB();
+    await fns.setDoc(fns.doc(db,'users',userId,'data',type), { list });
+}
+ 
+/* ─── Auth Screen ────────────────────────────────────────────────────────── */
+function AuthScreen() {
+    const [mode,setMode]     = useState('login');
+    const [email,setEmail]   = useState('');
+    const [pass,setPass]     = useState('');
+    const [err,setErr]       = useState('');
+    const [info,setInfo]     = useState('');
+    const [busy,setBusy]     = useState(false);
+ 
+    const ERRS = {
+        'auth/user-not-found':'E-mail não encontrado.',
+        'auth/wrong-password':'Senha incorreta.',
+        'auth/invalid-credential':'E-mail ou senha incorretos.',
+        'auth/email-already-in-use':'Este e-mail já está cadastrado.',
+        'auth/invalid-email':'E-mail inválido.',
+        'auth/weak-password':'A senha precisa ter pelo menos 6 caracteres.',
+    };
+ 
+    const submit = async () => {
+        setErr(''); setInfo('');
+        if (!email || (mode!=='reset' && !pass)) { setErr('Preencha todos os campos.'); return; }
+        setBusy(true);
+        const { auth, fns } = FB();
+        try {
+            if (mode==='login')    await fns.signInWithEmailAndPassword(auth,email,pass);
+            else if(mode==='reg')  await fns.createUserWithEmailAndPassword(auth,email,pass);
+            else { await fns.sendPasswordResetEmail(auth,email); setInfo('E-mail de recuperação enviado!'); setMode('login'); }
+        } catch(e) { setErr(ERRS[e.code]||'Erro inesperado. Tente novamente.'); }
+        setBusy(false);
+    };
+ 
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-brand-50 px-4">
+            <div className="w-full max-w-md">
+                <div className="text-center mb-8">
+                    <div className="flex items-center justify-center gap-3 mb-2">
+                        <i className="ph-fill ph-plant text-5xl text-brand-500"></i>
+                        <h1 className="text-4xl font-bold text-brand-900">ChefGrow</h1>
+                    </div>
+                    <p className="text-gray-500 text-sm">Gestão Inteligente de Fichas Técnicas</p>
+                </div>
+                <div className="glass-panel rounded-2xl p-8 shadow-lg">
+                    <h2 className="text-xl font-bold text-gray-800 mb-6">
+                        {mode==='login'?'Entrar na sua conta':mode==='reg'?'Criar nova conta':'Recuperar senha'}
+                    </h2>
+                    {err  && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100 flex items-center gap-2"><i className="ph-fill ph-warning-circle"></i>{err}</div>}
+                    {info && <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm border border-green-100 flex items-center gap-2"><i className="ph-fill ph-check-circle"></i>{info}</div>}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                            <input type="email" className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="seu@email.com"/>
+                        </div>
+                        {mode!=='reset' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+                                <input type="password" className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="••••••••"/>
+                            </div>
+                        )}
+                        <button onClick={submit} disabled={busy} className="w-full py-3 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-300 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-colors">
+                            {busy && <i className="ph ph-circle-notch spin text-xl"></i>}
+                            {mode==='login'?'Entrar':mode==='reg'?'Criar Conta':'Enviar E-mail'}
+                        </button>
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-gray-100 text-center space-y-2">
+                        {mode==='login' && <>
+                            <button onClick={()=>{setMode('reg');setErr('');}} className="text-sm text-brand-600 hover:underline block w-full">Não tem conta? Criar agora</button>
+                            <button onClick={()=>{setMode('reset');setErr('');}} className="text-sm text-gray-400 hover:text-gray-600 block w-full">Esqueci minha senha</button>
+                        </>}
+                        {mode!=='login' && <button onClick={()=>{setMode('login');setErr('');}} className="text-sm text-brand-600 hover:underline">Voltar para o login</button>}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+ 
+/* ─── Generic confirm modal ──────────────────────────────────────────────── */
+function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }) {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                <div className="flex flex-col items-center text-center">
+                    <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-4"><i className="ph-fill ph-warning text-3xl"></i></div>
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
+                    <p className="text-gray-600 mb-6">{message}</p>
+                    <div className="flex w-full gap-3">
+                        <button onClick={onCancel} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium">Cancelar</button>
+                        <button onClick={onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium">Sim, excluir</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+ 
+/* ─── Toggle ─────────────────────────────────────────────────────────────── */
+function Toggle({ checked, onChange, label, sub }) {
+    return (
+        <label className="toggle-switch gap-3">
+            <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/>
+            <div className={`toggle-track ${checked?'on':''}`}><div className="toggle-thumb"></div></div>
+            <div>
+                <div className="text-sm font-semibold text-gray-800">{label}</div>
+                {sub && <div className="text-xs text-gray-500">{sub}</div>}
+            </div>
+        </label>
+    );
+}
+ 
+/* ─── Dashboard ──────────────────────────────────────────────────────────── */
+function Dashboard({ fichas, insumos, getCusto, getPeso }) {
+    const stats = useMemo(()=>{
+        const rows = fichas.map(f=>{
+            const custo = getCusto(f);
+            const pesoKg = getPeso(f)/1000;
+            let cmv;
+            if (f.usarCmvPorKg && pesoKg>0) {
+                const pk = f.precoVendaAtualPorKg>0?f.precoVendaAtualPorKg:(f.precoVendaPorKg>0?f.precoVendaPorKg:0);
+                if (!pk) return null;
+                cmv = (custo/pesoKg)/pk;
+            } else {
+                const pv = f.precoVendaAtual>0?f.precoVendaAtual:(f.precoVenda>0?f.precoVenda:0);
+                if (!pv) return null;
+                cmv = custo/pv;
+            }
+            return {...f,custo,pesoKg,cmv};
+        }).filter(r=>r&&r.cmv>0&&r.cmv<100&&r.custo>0);
+        if (!rows.length) return null;
+        const media = rows.reduce((a,r)=>a+r.cmv,0)/rows.length;
+        return {
+            media,
+            best:  [...rows].sort((a,b)=>a.cmv-b.cmv).slice(0,10),
+            worst: [...rows].sort((a,b)=>b.cmv-a.cmv).slice(0,10),
+            top3cost:   [...rows].sort((a,b)=>b.custo-a.custo).slice(0,3),
+            bot3cost:   [...rows].sort((a,b)=>a.custo-b.custo).slice(0,3),
+            promo: rows.filter(r=>{
+                const disc = r.usarCmvPorKg&&r.pesoKg>0
+                    ? (r.custo/r.pesoKg)/((r.precoVendaAtualPorKg||r.precoVendaPorKg)*0.8)
+                    : r.custo/((r.precoVendaAtual||r.precoVenda)*0.8);
+                return disc<=0.45;
+            }).sort((a,b)=>a.cmv-b.cmv).slice(0,3),
+        };
+    },[fichas,insumos]);
+ 
+    if (!stats) return (
+        <div className="text-center py-20 text-gray-400 glass-panel rounded-2xl">
+            <i className="ph ph-chart-pie-slice text-5xl mb-3 block"></i>
+            <p>Cadastre fichas com preços de venda para ver a Dashboard.</p>
+        </div>
+    );
+ 
+    const Bar = ({r,worst})=>{
+        const col = worst?(r.cmv>0.45?'bg-red-500':'bg-orange-400'):'bg-green-500';
+        return(
+            <div className="mb-3">
+                <div className="flex justify-between text-sm mb-1">
+                    <span className="font-medium text-gray-700 truncate pr-2 flex items-center gap-1">
+                        {r.nome}
+                        {r.usarCmvPorKg&&<span className="text-[9px] bg-brand-100 text-brand-600 px-1.5 py-0.5 rounded font-bold">/KG</span>}
+                    </span>
+                    <span className={`font-bold ${worst?'text-red-600':'text-green-600'}`}>{$P(r.cmv)}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2"><div className={`${col} h-2 rounded-full`} style={{width:`${Math.min(r.cmv*100,100)}%`}}></div></div>
+            </div>
+        );
+    };
+ 
+    return(
+        <div className="space-y-6 fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-brand-900 text-white p-6 rounded-2xl relative overflow-hidden">
+                    <i className="ph ph-chart-line-up absolute -right-6 -bottom-6 text-9xl opacity-5"></i>
+                    <h3 className="text-lg font-medium text-brand-100 mb-1">Média Geral de CMV</h3>
+                    <div className="text-5xl font-bold mb-2">{$P(stats.media)}</div>
+                    <p className="text-sm text-brand-200">{stats.media<=0.35?'Excelente! Suas margens estão saudáveis.':'Atenção: acima do ideal de 35%.'}</p>
+                </div>
+                <div className="bg-gradient-to-br from-green-500 to-green-600 text-white p-6 rounded-2xl">
+                    <div className="flex items-center gap-2 mb-4 border-b border-white/20 pb-2">
+                        <i className="ph-fill ph-tag text-2xl"></i><h3 className="text-lg font-bold">Sugestão de Promoção (−20%)</h3>
+                    </div>
+                    {stats.promo.length===0
+                        ? <p className="text-sm text-green-100">Nenhum produto tem margem suficiente para 20% de desconto.</p>
+                        : <ul className="space-y-3">{stats.promo.map(p=>(
+                            <li key={p.id} className="bg-white/20 px-3 py-2 rounded-lg flex justify-between items-center text-sm">
+                                <span className="font-medium truncate pr-2">{p.nome}</span>
+                                <span className="bg-white text-green-700 px-2 py-1 rounded text-xs font-bold shrink-0">
+                                    {$P(p.usarCmvPorKg&&p.pesoKg>0?(p.custo/p.pesoKg)/((p.precoVendaAtualPorKg||p.precoVendaPorKg)*0.8):p.custo/((p.precoVendaAtual||p.precoVenda)*0.8))}
+                                </span>
+                            </li>
+                        ))}</ul>
+                    }
+                </div>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {[{label:'Top 10 Melhor CMV',data:stats.best,icon:'ph-fill ph-trophy',ic:'text-green-500',worst:false},{label:'Top 10 Pior CMV',data:stats.worst,icon:'ph-fill ph-warning-circle',ic:'text-red-500',worst:true}].map(({label,data,icon,ic,worst})=>(
+                    <div key={label} className="glass-panel p-6 rounded-2xl h-96 flex flex-col">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><i className={`${icon} ${ic} text-xl`}></i>{label}</h3>
+                        <div className="flex-1 overflow-y-auto custom-scroll pr-2">{data.map(r=><Bar key={r.id} r={r} worst={worst}/>)}</div>
+                    </div>
+                ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {[{label:'Mais Caros para Produzir',data:stats.top3cost,col:'red'},{label:'Mais Baratos para Produzir',data:stats.bot3cost,col:'green'}].map(({label,data,col})=>(
+                    <div key={label} className="bg-white border border-gray-100 p-6 rounded-2xl shadow-sm">
+                        <h3 className="text-gray-500 font-semibold mb-4 text-sm uppercase tracking-wider">Top 3 {label}</h3>
+                        <div className="space-y-4">{data.map((r,i)=>(
+                            <div key={r.id} className="flex items-center gap-4">
+                                <div className={`w-8 h-8 rounded-full bg-${col}-100 text-${col}-600 flex items-center justify-center font-bold text-sm shrink-0`}>{i+1}</div>
+                                <p className="flex-1 font-medium text-gray-800 truncate">{r.nome}</p>
+                                <div className="font-bold text-gray-900">{$R(r.custo)}</div>
+                            </div>
+                        ))}</div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+ 
+/* ─── PDF Importer ───────────────────────────────────────────────────────── */
+function PdfImporter({ isOpen, onClose, onImport, insumos }) {
+    const [txt,setTxt]=useState(''); const [busy,setBusy]=useState(false); const [prev,setPrev]=useState(null); const [err,setErr]=useState('');
+    const fRef=useRef(null);
+    if(!isOpen)return null;
+ 
+    const doFile=async e=>{
+        const file=e.target.files[0]; if(!file)return; setBusy(true); setErr('');
+        const r=new FileReader();
+        r.onload=async function(){
+            try{
+                const pdf=await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
+                let full='';
+                for(let i=1;i<=pdf.numPages;i++){
+                    const p=await pdf.getPage(i); const tc=await p.getTextContent();
+                    const items=tc.items.sort((a,b)=>Math.abs(b.transform[5]-a.transform[5])>3?b.transform[5]-a.transform[5]:a.transform[4]-b.transform[4]);
+                    let ly=null,pt='';
+                    for(const it of items){if(ly===null)pt+=it.str;else if(Math.abs(ly-it.transform[5])>3)pt+='\n'+it.str;else pt+=' | '+it.str;ly=it.transform[5];}
+                    full+=pt+'\n';
+                }
+                setTxt(full); parse(full);
+            }catch{setErr('Erro ao ler PDF. Cole o texto manualmente.');}
+            finally{setBusy(false);}
+        };
+        r.readAsArrayBuffer(file);
+    };
+ 
+    const parse=raw=>{
+        const text=raw||txt; if(!text.trim()){setErr('Nenhum texto.');return;}
+        setBusy(true); setErr('');
+        try{
+            const lines=text.split('\n'); let nome='Ficha Importada',ings=[],kgCusto=0;
+            for(const l of lines){const c=l.replace(/\|/g,'').trim();if(c&&!c.includes('Cliente:')&&c.length<50&&!c.toLowerCase().includes('page')){nome=c;break;}}
+            for(const line of lines){
+                if(line.toLowerCase().includes('custo por kg')){const m=line.match(/R\$\s*([\d.,]+)/i);if(m)kgCusto=parseFloat(m[1].replace('.','').replace(',','.'));}
+                if(/ingredientes|modo de preparo|custo total/i.test(line))continue;
+                const cl=line.replace(/\|/g,' ').replace(/\s+/g,' ').trim();
+                const m=cl.match(/^(.+?)\s+(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|un)\b.*?(?:r\$)\s*([\d.,]+)/i);
+                if(m){
+                    const n=m[1].trim(),qo=parseFloat(m[2].replace(',','.')),u=m[3].toLowerCase(),c=parseFloat(m[4].replace('.','').replace(',','.'));
+                    let q=qo,un='g';
+                    if(u==='kg'||u==='l'){q=qo*1000;un=u==='l'?'ml':'g';}else if(u==='un')un='un';else if(u==='ml')un='ml';
+                    if(q>0&&n.length>2&&!n.toLowerCase().includes('sugestão')&&!ings.find(i=>i.nome===n))ings.push({nome:n,qtd:q,unidade:un,custo:c});
+                }
+            }
+            if(!ings.length){setErr('Não foi possível identificar ingredientes.');setPrev(null);setBusy(false);return;}
+            setPrev({nome,ingredientes:ings,kgCusto});
+        }catch{setErr('Erro ao processar texto.');}
+        setBusy(false);
+    };
+ 
+    return(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><i className="ph-fill ph-file-pdf text-brand-500"></i>Importar PDF</h2>
+                    <button onClick={onClose}><i className="ph ph-x text-xl text-gray-400"></i></button>
+                </div>
+                <div className="p-6 overflow-y-auto flex-1 custom-scroll space-y-6">
+                    {!prev?(
+                        <>
+                            <div className="border-2 border-dashed border-brand-200 rounded-xl p-8 text-center bg-brand-50/50">
+                                <i className="ph ph-upload-simple text-4xl text-brand-400 mb-3 block"></i>
+                                <p className="text-sm text-gray-500 mb-4">Selecione o PDF da ficha técnica.</p>
+                                <input type="file" accept=".pdf" ref={fRef} className="hidden" onChange={doFile}/>
+                                <button onClick={()=>fRef.current.click()} className="bg-brand-500 text-white px-6 py-2 rounded-lg">Selecionar Arquivo</button>
+                            </div>
+                            <div className="flex items-center gap-4 text-gray-400 text-sm"><hr className="flex-1"/>ou cole o texto<hr className="flex-1"/></div>
+                            <div>
+                                <textarea className="w-full h-40 p-4 border border-gray-200 rounded-xl text-sm font-mono" placeholder="Cole o texto aqui..." value={txt} onChange={e=>setTxt(e.target.value)}></textarea>
+                                <button onClick={()=>parse()} disabled={busy||!txt.trim()} className="mt-3 w-full bg-gray-800 text-white py-3 rounded-xl font-medium disabled:bg-gray-300">{busy?'Processando...':'Processar Texto'}</button>
+                            </div>
+                            {err&&<div className="p-4 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100">{err}</div>}
+                        </>
+                    ):(
+                        <div className="space-y-4 fade-in">
+                            <div className="bg-green-50 text-green-700 p-4 rounded-xl border border-green-200 flex items-center gap-3">
+                                <i className="ph-fill ph-check-circle text-2xl"></i>
+                                <div><h4 className="font-bold">Dados Extraídos!</h4><p className="text-sm">Insumos novos serão criados automaticamente.</p></div>
+                            </div>
+                            <input type="text" value={prev.nome} onChange={e=>setPrev({...prev,nome:e.target.value})} className="w-full p-2 border border-gray-300 rounded font-bold"/>
+                            <div className="border border-gray-200 rounded-xl overflow-hidden">
+                                <table className="w-full text-sm"><thead className="bg-gray-100"><tr><th className="p-3 text-left">Ingrediente</th><th className="p-3 text-left">Qtd</th><th className="p-3 text-left">Custo</th></tr></thead>
+                                <tbody>{prev.ingredientes.map((ing,i)=>(
+                                    <tr key={i} className="border-t border-gray-100">
+                                        <td className="p-3 font-medium">{ing.nome}{insumos.some(x=>x.nome.toLowerCase()===ing.nome.toLowerCase())?<span className="ml-2 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Já Existe</span>:<span className="ml-2 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded">Será Criado</span>}</td>
+                                        <td className="p-3">{ing.qtd} {ing.unidade}</td>
+                                        <td className="p-3">{$R(ing.custo)}</td>
+                                    </tr>
+                                ))}</tbody></table>
+                            </div>
+                        </div>
+                    )}
+                </div>
+                {prev&&(
+                    <div className="p-4 border-t bg-gray-50 rounded-b-2xl flex gap-3">
+                        <button onClick={()=>setPrev(null)} className="flex-1 py-3 bg-white border border-gray-200 rounded-xl">Voltar</button>
+                        <button onClick={()=>{onImport(prev);onClose();}} className="flex-1 py-3 bg-brand-500 text-white rounded-xl font-bold flex items-center justify-center gap-2">
+                            <i className="ph-fill ph-check"></i>Confirmar e Salvar
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+ 
+/* ─── App ────────────────────────────────────────────────────────────────── */
+function App() {
+    const [user,setUser]         = useState(undefined);
+    const [insumos,setInsumosSt] = useState([]);
+    const [fichas,setFichasSt]   = useState([]);
+    const [loading,setLoading]   = useState(false);
+    const [tab,setTab]           = useState('dashboard');
+    const [editId,setEditId]     = useState(null);
+    const timer = useRef({});
+ 
+    useEffect(()=>{
+        const init = () => {
+            if (!window._fbAuth) { setTimeout(init,100); return; }
+            window._fbFns.onAuthStateChanged(window._fbAuth, async u=>{
+                if (u) {
+                    setLoading(true);
+                    const d = await dbLoad(u.uid);
+                    setInsumosSt(d.insumos); setFichasSt(d.fichas);
+                    setLoading(false);
+                }
+                setUser(u||null);
+            });
+        };
+        init();
+    },[]);
+ 
+    const persist = (type,data) => {
+        if (!user) return;
+        clearTimeout(timer.current[type]);
+        timer.current[type] = setTimeout(()=>dbSave(user.uid,type,data), 1500);
+    };
+ 
+    const setInsumos = d => { setInsumosSt(d); persist('insumos',d); };
+    const setFichas  = d => { setFichasSt(d);  persist('fichas',d); };
+ 
+    const logout = async () => {
+        await window._fbFns.signOut(window._fbAuth);
+        setUser(null); setInsumosSt([]); setFichasSt([]);
+    };
+ 
+    if (user===undefined||loading) return (
+        <div className="min-h-screen flex items-center justify-center bg-brand-50">
+            <div className="text-center">
+                <i className="ph-fill ph-plant text-6xl text-brand-500 mb-4 block"></i>
+                <p className="text-gray-400">{loading?'Carregando seus dados…':'Conectando…'}</p>
+            </div>
+        </div>
+    );
+    if (!user) return <AuthScreen/>;
+ 
+    const getCustoIns = (ins,q) => !ins?0:(ins.precoEmbalagem/ins.qtdEmbalagem)*q;
+    const getCusto    = f => f.ingredientes.reduce((t,ing)=>t+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
+    const getPeso     = f => f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
+    const hasMissing  = f => f.ingredientes.some(ing=>!insumos.find(i=>i.id===ing.insumoId));
+ 
+    const importPDF = pd => {
+        const ni=[...insumos];
+        const ings=pd.ingredientes.map(p=>{
+            let ins=ni.find(i=>i.nome.toLowerCase()===p.nome.toLowerCase());
+            if(!ins){const id=uid();ins={id,nome:p.nome,qtdEmbalagem:p.qtd,unidade:p.unidade,precoEmbalagem:p.custo};ni.push(ins);}
+            return{insumoId:ins.id,qtdUtilizada:p.qtd};
+        });
+        setInsumos(ni);
+        let cc=0,pp=0;
+        ings.forEach(ing=>{const ins=ni.find(i=>i.id===ing.insumoId);cc+=(ins.precoEmbalagem/ins.qtdEmbalagem)*ing.qtdUtilizada;pp+=ing.qtdUtilizada;});
+        const nf={id:uid(),nome:pd.nome,ingredientes:ings,precoVenda:0,precoVendaAtual:0,usarCmvPorKg:false,precoVendaPorKg:0,precoVendaAtualPorKg:0,revisaoPendente:pp>0&&Math.abs((cc/(pp/1000))-pd.kgCusto)>1};
+        const nfs=[...fichas,nf]; setFichas(nfs); setTab('fichas'); setEditId(nf.id);
+    };
+ 
+    return(
+        <div className="min-h-screen pb-10">
+            <header className="bg-brand-900 text-white shadow-md">
+                <div className="max-w-6xl mx-auto px-4 py-5 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <i className="ph-fill ph-plant text-4xl text-brand-500"></i>
+                        <div><h1 className="text-2xl font-bold">ChefGrow</h1><p className="text-brand-100 text-xs">Gestão Inteligente de Fichas Técnicas</p></div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-brand-200 text-sm hidden sm:block truncate max-w-[200px]">{user.email}</span>
+                        <button onClick={logout} className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                            <i className="ph ph-sign-out"></i>Sair
+                        </button>
+                    </div>
+                </div>
+            </header>
+            <main className="max-w-6xl mx-auto px-4 py-8">
+                {editId===null?(
+                    <>
+                        <div className="flex space-x-1 bg-white/50 p-1 rounded-xl shadow-sm mb-8 w-fit glass-panel overflow-x-auto max-w-full">
+                            {[['dashboard','ph-squares-four','Dashboard'],['fichas','ph-receipt','Fichas Técnicas'],['insumos','ph-package','Insumos']].map(([t,ic,lb])=>(
+                                <button key={t} onClick={()=>setTab(t)} className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${tab===t?'bg-white text-brand-900 shadow-sm':'text-gray-500 hover:text-brand-900'}`}>
+                                    <i className={`ph ${ic}`}></i>{lb}
+                                </button>
+                            ))}
+                        </div>
+                        {tab==='dashboard'&&<Dashboard fichas={fichas} insumos={insumos} getCusto={getCusto} getPeso={getPeso}/>}
+                        {tab==='insumos'  &&<InsumosList insumos={insumos} setInsumos={setInsumos}/>}
+                        {tab==='fichas'   &&<FichasList fichas={fichas} setFichas={setFichas} insumos={insumos} getCusto={getCusto} hasMissing={hasMissing} onEdit={id=>setEditId(id)} onCreate={()=>setEditId('new')} onImport={importPDF}/>}
+                    </>
+                ):(
+                    <FichaEditor fichaId={editId} fichas={fichas} setFichas={setFichas} insumos={insumos} getCustoIns={getCustoIns} getPeso={getPeso} onBack={()=>setEditId(null)}/>
+                )}
+            </main>
+        </div>
+    );
+}
+ 
+/* ─── Insumos ────────────────────────────────────────────────────────────── */
+function InsumosList({ insumos, setInsumos }) {
+    const [modal,setModal]=useState(false); const [edit,setEdit]=useState(null); const [q,setQ]=useState(''); const [del,setDel]=useState({open:false,id:null});
+    const save=ins=>{if(ins.id)setInsumos(insumos.map(i=>i.id===ins.id?ins:i));else setInsumos([...insumos,{...ins,id:uid()}]);setModal(false);};
+    const filtered=insumos.filter(i=>i.nome.toLowerCase().includes(q.toLowerCase()));
+    return(
+        <div className="glass-panel rounded-2xl p-6 fade-in">
+            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <h2 className="text-xl font-bold text-gray-800">Banco de Insumos</h2>
+                <div className="flex gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                        <i className="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        <input type="text" placeholder="Buscar..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" value={q} onChange={e=>setQ(e.target.value)}/>
+                    </div>
+                    <button onClick={()=>{setEdit(null);setModal(true);}} className="bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium whitespace-nowrap">
+                        <i className="ph ph-plus-circle"></i>Novo
+                    </button>
+                </div>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                    <thead><tr className="border-b border-gray-200 text-gray-500 text-sm"><th className="pb-3 pl-2">Insumo</th><th className="pb-3">Embalagem</th><th className="pb-3">Preço Ref.</th><th className="pb-3">Custo/Un.</th><th className="pb-3 text-right pr-2">Ações</th></tr></thead>
+                    <tbody className="text-gray-700">
+                        {filtered.map(ins=>(
+                            <tr key={ins.id} className="border-b border-gray-100 hover:bg-gray-50/50">
+                                <td className="py-4 pl-2 font-medium">{ins.nome}</td>
+                                <td className="py-4">{ins.qtdEmbalagem} {ins.unidade}</td>
+                                <td className="py-4 font-semibold text-brand-900">{$R(ins.precoEmbalagem)}</td>
+                                <td className="py-4 text-gray-500 text-sm">{$R(ins.precoEmbalagem/ins.qtdEmbalagem)}/{ins.unidade}</td>
+                                <td className="py-4 text-right pr-2">
+                                    <button onClick={()=>{setEdit(ins);setModal(true);}} className="text-blue-500 hover:text-blue-700 p-2"><i className="ph ph-pencil-simple text-lg"></i></button>
+                                    <button onClick={()=>setDel({open:true,id:ins.id})} className="text-red-500 hover:text-red-700 p-2"><i className="ph ph-trash text-lg"></i></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {modal&&<InsumoModal insumo={edit} onClose={()=>setModal(false)} onSave={save}/>}
+            <ConfirmModal isOpen={del.open} title="Excluir Insumo" message="Fichas que usam este insumo ficarão com alerta de erro." onCancel={()=>setDel({open:false,id:null})} onConfirm={()=>{setInsumos(insumos.filter(i=>i.id!==del.id));setDel({open:false,id:null});}}/>
+        </div>
+    );
+}
+function InsumoModal({ insumo, onClose, onSave }) {
+    const [f,setF]=useState(insumo||{nome:'',qtdEmbalagem:'',unidade:'g',precoEmbalagem:''});
+    return(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-bold">{insumo?'Editar':'Novo'} Insumo</h3><button onClick={onClose}><i className="ph ph-x text-xl text-gray-400"></i></button></div>
+                <div className="space-y-4">
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Nome</label><input type="text" className="w-full p-2.5 border border-gray-200 rounded-lg" value={f.nome} onChange={e=>setF({...f,nome:e.target.value})}/></div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Tamanho</label><input type="number" step="0.01" min="0.01" className="w-full p-2.5 border border-gray-200 rounded-lg" value={f.qtdEmbalagem} onChange={e=>setF({...f,qtdEmbalagem:e.target.value})}/></div>
+                        <div><label className="block text-sm font-medium text-gray-700 mb-1">Unidade</label><select className="w-full p-2.5 border border-gray-200 rounded-lg bg-white" value={f.unidade} onChange={e=>setF({...f,unidade:e.target.value})}>{UNI.map(u=><option key={u}>{u}</option>)}</select></div>
+                    </div>
+                    <div><label className="block text-sm font-medium text-gray-700 mb-1">Preço (R$)</label><input type="number" step="0.01" min="0" className="w-full p-2.5 border border-gray-200 rounded-lg" value={f.precoEmbalagem} onChange={e=>setF({...f,precoEmbalagem:e.target.value})}/></div>
+                    <div className="pt-4 flex gap-3">
+                        <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-lg">Cancelar</button>
+                        <button onClick={()=>{if(!f.nome||!f.qtdEmbalagem||!f.precoEmbalagem)return;onSave({...f,qtdEmbalagem:parseFloat(f.qtdEmbalagem),precoEmbalagem:parseFloat(f.precoEmbalagem)});}} className="flex-1 px-4 py-2.5 bg-brand-500 text-white rounded-lg">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+ 
+/* ─── Fichas List ────────────────────────────────────────────────────────── */
+function FichasList({ fichas, setFichas, insumos, getCusto, hasMissing, onEdit, onCreate, onImport }) {
+    const [q,setQ]=useState(''); const [imp,setImp]=useState(false); const [del,setDel]=useState({open:false,id:null});
+    const filtered=fichas.filter(f=>f.nome.toLowerCase().includes(q.toLowerCase()));
+    return(
+        <div className="glass-panel rounded-2xl p-6 fade-in">
+            <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4">
+                <h2 className="text-xl font-bold text-gray-800">Suas Fichas Técnicas</h2>
+                <div className="flex flex-wrap gap-3 w-full lg:w-auto">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <i className="ph ph-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        <input type="text" placeholder="Buscar ficha..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg" value={q} onChange={e=>setQ(e.target.value)}/>
+                    </div>
+                    <button onClick={()=>setImp(true)} className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"><i className="ph ph-upload-simple"></i>Importar PDF</button>
+                    <button onClick={onCreate} className="bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"><i className="ph ph-plus-circle"></i>Nova Ficha</button>
+                </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map(f=>{
+                    const custo=getCusto(f); const err=hasMissing(f);
+                    let cl='—',cc='text-gray-400',badge=null;
+                    if(f.usarCmvPorKg){
+                        const pKg=f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0)/1000;
+                        const pk=f.precoVendaAtualPorKg>0?f.precoVendaAtualPorKg:f.precoVendaPorKg;
+                        if(pKg>0&&pk>0){const c=custo/pKg/pk;cl=$P(c);cc=c>0.35?'text-red-500':'text-green-600';}
+                        badge=<span className="text-[9px] bg-brand-100 text-brand-700 font-bold px-1.5 py-0.5 rounded ml-1">/KG</span>;
+                    }else{
+                        const pv=f.precoVendaAtual>0?f.precoVendaAtual:0;
+                        if(pv>0){const c=custo/pv;cl=$P(c);cc=c>0.35?'text-red-500':'text-green-600';}
+                    }
+                    return(
+                        <div key={f.id} className={`bg-white border ${f.revisaoPendente?'border-yellow-400':'border-gray-100'} rounded-xl p-5 shadow-sm relative group`}>
+                            {err&&<div className="absolute -top-2 -right-2 bg-red-100 text-red-600 p-1 rounded-full"><i className="ph-fill ph-warning-circle text-xl"></i></div>}
+                            {f.revisaoPendente&&!err&&<div className="mb-2 inline-flex items-center gap-1 bg-yellow-100 text-yellow-700 text-[10px] uppercase font-bold px-2 py-1 rounded"><i className="ph-fill ph-warning"></i>Revisão Pendente</div>}
+                            <h3 className="font-bold text-lg text-gray-800 mb-1 pr-6 truncate">{f.nome}</h3>
+                            <div className="space-y-2 mt-4 text-sm">
+                                <div className="flex justify-between text-gray-600"><span>Custo Total:</span><span className="font-semibold text-gray-900">{$R(custo)}</span></div>
+                                <div className="flex justify-between text-gray-600"><span>Preço Atual{f.usarCmvPorKg?' /KG':''}:</span><span className="font-semibold text-gray-900">{$R(f.usarCmvPorKg?(f.precoVendaAtualPorKg||f.precoVendaPorKg):f.precoVendaAtual)}</span></div>
+                                <div className="flex justify-between text-gray-600"><span>CMV{badge}:</span><span className={`font-semibold ${cc}`}>{cl}</span></div>
+                            </div>
+                            <div className="mt-5 flex gap-2 border-t border-gray-100 pt-4 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={()=>onEdit(f.id)} className="flex-1 bg-brand-50 text-brand-600 hover:bg-brand-100 py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><i className="ph ph-pencil-simple"></i>Editar</button>
+                                <button onClick={()=>setDel({open:true,id:f.id})} className="px-3 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg"><i className="ph ph-trash"></i></button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <PdfImporter isOpen={imp} onClose={()=>setImp(false)} onImport={onImport} insumos={insumos}/>
+            <ConfirmModal isOpen={del.open} title="Excluir Ficha" message="Apagar permanentemente? Não pode ser desfeito." onCancel={()=>setDel({open:false,id:null})} onConfirm={()=>{setFichas(fichas.filter(f=>f.id!==del.id));setDel({open:false,id:null});}}/>
+        </div>
+    );
+}
+ 
+/* ─── Ficha Editor ───────────────────────────────────────────────────────── */
+function FichaEditor({ fichaId, fichas, setFichas, insumos, getCustoIns, getPeso, onBack }) {
+    const isNew=fichaId==='new';
+    const [f,setF]=useState(isNew
+        ?{nome:'',ingredientes:[],precoVenda:'',precoVendaAtual:'',usarCmvPorKg:false,precoVendaPorKg:'',precoVendaAtualPorKg:'',revisaoPendente:false}
+        :fichas.find(x=>x.id===fichaId));
+    const [ni,setNi]=useState({insumoId:'',qtdUtilizada:''});
+ 
+    const custo=f.ingredientes.reduce((a,ing)=>a+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
+    const pesoG=f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
+    const pesoKg=pesoG/1000;
+    const custoKg=pesoKg>0?custo/pesoKg:0;
+    const pV=parseFloat(f.precoVenda)||0, pVA=parseFloat(f.precoVendaAtual)||0;
+    const pK=parseFloat(f.precoVendaPorKg)||0, pKA=parseFloat(f.precoVendaAtualPorKg)||0;
+    const cmvT=pV>0?custo/pV:0, cmvTA=pVA>0?custo/pVA:0;
+    const cmvK=pK>0&&pesoKg>0?custoKg/pK:0, cmvKA=pKA>0&&pesoKg>0?custoKg/pKA:0;
+    const cc=v=>v>0.35?'text-red-500':v>0?'text-green-600':'text-gray-400';
+ 
+    const save=()=>{
+        if(!f.nome)return alert('Dê um nome para a ficha.');
+        const p={...f,precoVenda:parseFloat(f.precoVenda||0),precoVendaAtual:parseFloat(f.precoVendaAtual||0),precoVendaPorKg:parseFloat(f.precoVendaPorKg||0),precoVendaAtualPorKg:parseFloat(f.precoVendaAtualPorKg||0),revisaoPendente:false};
+        if(isNew)setFichas([...fichas,{...p,id:uid()}]);else setFichas(fichas.map(x=>x.id===f.id?p:x));
+        onBack();
+    };
+    const addIng=()=>{if(!ni.insumoId||!ni.qtdUtilizada)return;setF({...f,ingredientes:[...f.ingredientes,{insumoId:ni.insumoId,qtdUtilizada:parseFloat(ni.qtdUtilizada)}]});setNi({insumoId:'',qtdUtilizada:''});};
+    const remIng=i=>{const u=[...f.ingredientes];u.splice(i,1);setF({...f,ingredientes:u});};
+ 
+    return(
+        <div className="space-y-6 fade-in">
+            <div className="flex items-center justify-between glass-panel p-4 rounded-xl">
+                <button onClick={onBack} className="flex items-center gap-2 text-gray-500 hover:text-gray-800 font-medium"><i className="ph ph-arrow-left text-xl"></i>Voltar</button>
+                <button onClick={save} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium flex items-center gap-2"><i className="ph ph-floppy-disk"></i>Salvar</button>
+            </div>
+            {f.revisaoPendente&&(
+                <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-xl flex items-start gap-3">
+                    <i className="ph-fill ph-warning-circle text-2xl text-yellow-500"></i>
+                    <div><h4 className="font-bold">Revisão Sugerida</h4><p className="text-sm">Ficha importada via PDF — verifique as quantidades e salve para confirmar.</p></div>
+                </div>
+            )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left */}
+                <div className="lg:col-span-2 space-y-6">
+                    <div className="glass-panel p-6 rounded-2xl">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Nome do Produto</label>
+                        <input type="text" className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none text-lg font-medium" value={f.nome} onChange={e=>setF({...f,nome:e.target.value})}/>
+                    </div>
+                    <div className="glass-panel p-6 rounded-2xl">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4 border-b border-gray-100 pb-2">Ingredientes</h3>
+                        <div className="flex flex-col md:flex-row gap-3 items-end bg-brand-50 p-4 rounded-xl mb-6 border border-brand-100">
+                            <div className="flex-1 w-full">
+                                <label className="block text-xs font-medium text-brand-900 mb-1">Insumo</label>
+                                <select className="w-full p-2.5 border border-white rounded-lg outline-none" value={ni.insumoId} onChange={e=>setNi({...ni,insumoId:e.target.value})}>
+                                    <option value="">-- Escolha --</option>
+                                    {insumos.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+                                </select>
+                            </div>
+                            <div className="w-full md:w-32">
+                                <label className="block text-xs font-medium text-brand-900 mb-1">Quantidade</label>
+                                <input type="number" step="0.01" min="0" className="w-full p-2.5 border border-white rounded-lg outline-none" value={ni.qtdUtilizada} onChange={e=>setNi({...ni,qtdUtilizada:e.target.value})}/>
+                            </div>
+                            <button onClick={addIng} disabled={!ni.insumoId||!ni.qtdUtilizada} className="w-full md:w-auto bg-brand-600 hover:bg-brand-700 disabled:bg-gray-300 text-white px-4 py-2.5 rounded-lg font-medium">Adicionar</button>
+                        </div>
+                        <table className="w-full text-left border-collapse">
+                            <thead><tr className="border-b border-gray-200 text-gray-500 text-sm"><th className="pb-2">Insumo</th><th className="pb-2">Qtd</th><th className="pb-2 text-right">Custo</th><th></th></tr></thead>
+                            <tbody>
+                                {f.ingredientes.map((ing,idx)=>{
+                                    const ins=insumos.find(i=>i.id===ing.insumoId);
+                                    return(
+                                        <tr key={idx} className={`border-b border-gray-50 ${!ins?'bg-red-50':''}`}>
+                                            <td className="py-3 font-medium">{!ins?<span className="text-red-500 line-through">Insumo Excluído</span>:ins.nome}</td>
+                                            <td className="py-3 text-gray-600">{ing.qtdUtilizada} {ins?.unidade}</td>
+                                            <td className="py-3 text-right font-semibold">{$R(!ins?0:getCustoIns(ins,ing.qtdUtilizada))}</td>
+                                            <td className="py-3 text-right"><button onClick={()=>remIng(idx)} className="text-red-400 hover:text-red-600"><i className="ph ph-trash"></i></button></td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {/* Right */}
+                <div className="space-y-6">
+                    <div className="bg-brand-900 text-white p-6 rounded-2xl relative overflow-hidden">
+                        <i className="ph ph-coins absolute -right-6 -bottom-6 text-9xl opacity-5"></i>
+                        <h3 className="text-lg font-medium text-brand-100 mb-1">Custo Total</h3>
+                        <div className="text-4xl font-bold mb-4">{$R(custo)}</div>
+                        <div className="space-y-3">
+                            <div className="bg-white/10 rounded-xl p-3 border border-white/20">
+                                <div className="text-xs text-brand-200 mb-0.5">Preço Ideal Total (×3,33)</div>
+                                <div className="text-xl font-bold">{$R(custo*3.33)}</div>
+                            </div>
+                            <div className="bg-black/20 rounded-xl p-3 border border-white/10 flex justify-between items-center">
+                                <span className="text-brand-100 text-sm flex items-center gap-2"><i className="ph ph-scales"></i>Peso / Rendimento</span>
+                                <span className="font-bold">{$W(pesoG)}</span>
+                            </div>
+                            {pesoKg>0&&(
+                                <div className="bg-white/10 rounded-xl p-3 border border-white/20">
+                                    <div className="text-xs text-brand-200 mb-0.5">Custo por KG</div>
+                                    <div className="text-xl font-bold">{$R(custoKg)}</div>
+                                    <div className="text-xs text-brand-200 mt-1">Preço Ideal /KG: <span className="font-semibold text-white">{$R(custoKg*3.33)}</span></div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="glass-panel p-6 rounded-2xl space-y-5 border border-gray-100">
+                        <h3 className="font-bold text-gray-800 border-b border-gray-100 pb-3">Precificação & CMV</h3>
+                        {/* Toggle */}
+                        <div className={`transition-all duration-200 ${f.usarCmvPorKg?'kg-box':'bg-gray-50 rounded-xl p-3 border border-gray-100'}`}>
+                            <Toggle
+                                checked={!!f.usarCmvPorKg}
+                                onChange={v=>setF({...f,usarCmvPorKg:v})}
+                                label="Calcular CMV por KG"
+                                sub={f.usarCmvPorKg?"Usando preço de venda por quilo":"Usando preço total da receita"}
+                            />
+                            {f.usarCmvPorKg&&pesoKg<=0&&(
+                                <p className="mt-2 text-xs text-orange-600 flex items-center gap-1"><i className="ph-fill ph-warning"></i>Adicione ingredientes em g ou ml para calcular o peso.</p>
+                            )}
+                        </div>
+                        {!f.usarCmvPorKg?(
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600 mb-1">Preço Simulado (Alvo)</label>
+                                    <input type="number" step="0.01" className="w-full p-2.5 border border-gray-200 rounded-lg text-lg font-semibold" value={f.precoVenda} onChange={e=>setF({...f,precoVenda:e.target.value})}/>
+                                    <div className="flex justify-between mt-2 text-sm"><span className="text-gray-500">CMV Simulado:</span><span className={`font-bold ${cc(cmvT)}`}>{cmvT>0?$P(cmvT):'—'}</span></div>
+                                </div>
+                                <div className="pt-4 border-t border-gray-100">
+                                    <label className="block text-sm font-medium text-gray-600 mb-1">Preço Atual (Praticado)</label>
+                                    <input type="number" step="0.01" className="w-full p-2.5 border border-gray-200 rounded-lg text-lg font-semibold" value={f.precoVendaAtual} onChange={e=>setF({...f,precoVendaAtual:e.target.value})}/>
+                                    <div className="flex justify-between mt-2 text-sm"><span className="text-gray-500">CMV Atual:</span><span className={`font-bold ${cc(cmvTA)}`}>{cmvTA>0?$P(cmvTA):'—'}</span></div>
+                                </div>
+                            </>
+                        ):(
+                            <>
+                                {pesoKg>0&&<div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">Custo /KG desta receita: <strong className="text-gray-800">{$R(custoKg)}</strong></div>}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600 mb-1">Preço Simulado <span className="text-brand-500 font-bold">/ KG</span></label>
+                                    <div className="relative">
+                                        <input type="number" step="0.01" className="w-full p-2.5 border border-brand-200 rounded-lg text-lg font-semibold focus:ring-2 focus:ring-brand-400 outline-none" placeholder="0,00" value={f.precoVendaPorKg} onChange={e=>setF({...f,precoVendaPorKg:e.target.value})}/>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-400 text-sm font-bold">/kg</span>
+                                    </div>
+                                    <div className="flex justify-between mt-2 text-sm"><span className="text-gray-500">CMV Simulado /KG:</span><span className={`font-bold ${cc(cmvK)}`}>{cmvK>0?$P(cmvK):'—'}</span></div>
+                                </div>
+                                <div className="pt-4 border-t border-gray-100">
+                                    <label className="block text-sm font-medium text-gray-600 mb-1">Preço Atual <span className="text-brand-500 font-bold">/ KG</span></label>
+                                    <div className="relative">
+                                        <input type="number" step="0.01" className="w-full p-2.5 border border-brand-200 rounded-lg text-lg font-semibold focus:ring-2 focus:ring-brand-400 outline-none" placeholder="0,00" value={f.precoVendaAtualPorKg} onChange={e=>setF({...f,precoVendaAtualPorKg:e.target.value})}/>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-400 text-sm font-bold">/kg</span>
+                                    </div>
+                                    <div className="flex justify-between mt-2 text-sm"><span className="text-gray-500">CMV Atual /KG:</span><span className={`font-bold ${cc(cmvKA)}`}>{cmvKA>0?$P(cmvKA):'—'}</span></div>
+                                </div>
+                                {pesoKg>0&&(pK>0||pKA>0)&&(
+                                    <div className="pt-3 border-t border-gray-100 space-y-1 text-xs text-gray-500">
+                                        <p className="font-semibold text-gray-600 mb-1">Equivalência lote ({$W(pesoG)}):</p>
+                                        {pK>0&&<p>Preço simulado do lote: <strong className="text-gray-800">{$R(pK*pesoKg)}</strong></p>}
+                                        {pKA>0&&<p>Preço atual do lote: <strong className="text-gray-800">{$R(pKA*pesoKg)}</strong></p>}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+ 
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
