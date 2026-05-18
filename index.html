@@ -100,10 +100,31 @@ async function dbLoad(userId) {
             fns.get(fns.ref(db, `users/${userId}/insumos`)),
             fns.get(fns.ref(db, `users/${userId}/fichas`)),
         ]);
-        const result = {
-            insumos: iSnap.exists() ? iSnap.val() : SEED_INSUMOS,
-            fichas:  fSnap.exists() ? fSnap.val() : SEED_FICHAS,
+        // Firebase can return arrays or objects — normalize both
+        const toArray = v => {
+            if (!v) return [];
+            if (Array.isArray(v)) return v.filter(Boolean);
+            if (typeof v === 'object') return Object.values(v).filter(Boolean);
+            return [];
         };
+        const rawInsumos = iSnap.exists() ? iSnap.val() : SEED_INSUMOS;
+        const rawFichas  = fSnap.exists() ? fSnap.val() : SEED_FICHAS;
+        const insumos = toArray(rawInsumos).map(i => ({
+            ...i,
+            qtdEmbalagem: parseFloat(i.qtdEmbalagem) || 1,
+            precoEmbalagem: parseFloat(i.precoEmbalagem) || 0,
+        }));
+        const fichas = toArray(rawFichas).map(f => ({
+            ...f,
+            ingredientes: Array.isArray(f.ingredientes)
+                ? f.ingredientes
+                : Object.values(f.ingredientes || {}),
+            precoVenda: parseFloat(f.precoVenda) || 0,
+            precoVendaAtual: parseFloat(f.precoVendaAtual) || 0,
+            precoVendaPorKg: parseFloat(f.precoVendaPorKg) || 0,
+            precoVendaAtualPorKg: parseFloat(f.precoVendaAtualPorKg) || 0,
+        }));
+        const result = { insumos, fichas };
         console.log('[DB] Loaded:', result.insumos.length, 'insumos,', result.fichas.length, 'fichas');
         return result;
     } catch(e) {
@@ -540,9 +561,10 @@ function App() {
     );
 
     const getCustoIns = (ins,q) => !ins?0:(ins.precoEmbalagem/ins.qtdEmbalagem)*q;
-    const getCusto    = f => f.ingredientes.reduce((t,ing)=>t+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
-    const getPeso     = f => f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
-    const hasMissing  = f => f.ingredientes.some(ing=>!insumos.find(i=>i.id===ing.insumoId));
+    const safeIngs    = f => Array.isArray(f?.ingredientes)?f.ingredientes:Object.values(f?.ingredientes||{});
+    const getCusto    = f => safeIngs(f).reduce((t,ing)=>t+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
+    const getPeso     = f => safeIngs(f).reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
+    const hasMissing  = f => safeIngs(f).some(ing=>!insumos.find(i=>i.id===ing.insumoId));
 
     const importPDF = pd => {
         const ni=[...insumos];
@@ -684,7 +706,7 @@ function FichasList({ fichas, setFichas, insumos, getCusto, hasMissing, onEdit, 
                     const custo=getCusto(f); const err=hasMissing(f);
                     let cl='—',cc='text-gray-400',badge=null;
                     if(f.usarCmvPorKg){
-                        const pKg=f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0)/1000;
+                        const pKg=(Array.isArray(f.ingredientes)?f.ingredientes:Object.values(f.ingredientes||{})).reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0)/1000;
                         const pk=f.precoVendaAtualPorKg>0?f.precoVendaAtualPorKg:f.precoVendaPorKg;
                         if(pKg>0&&pk>0){const c=custo/pKg/pk;cl=$P(c);cc=c>0.35?'text-red-500':'text-green-600';}
                         badge=<span className="text-[9px] bg-brand-100 text-brand-700 font-bold px-1.5 py-0.5 rounded ml-1">/KG</span>;
@@ -724,8 +746,9 @@ function FichaEditor({ fichaId, fichas, setFichas, insumos, getCustoIns, getPeso
         :fichas.find(x=>x.id===fichaId));
     const [ni,setNi]=useState({insumoId:'',qtdUtilizada:''});
 
-    const custo=f.ingredientes.reduce((a,ing)=>a+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
-    const pesoG=f.ingredientes.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
+    const _ings = Array.isArray(f.ingredientes)?f.ingredientes:Object.values(f.ingredientes||{});
+    const custo=_ings.reduce((a,ing)=>a+getCustoIns(insumos.find(i=>i.id===ing.insumoId),parseFloat(ing.qtdUtilizada||0)),0);
+    const pesoG=_ings.reduce((s,ing)=>{const ins=insumos.find(i=>i.id===ing.insumoId);return ins&&(ins.unidade==='g'||ins.unidade==='ml')?s+parseFloat(ing.qtdUtilizada||0):s;},0);
     const pesoKg=pesoG/1000;
     const custoKg=pesoKg>0?custo/pesoKg:0;
     const pV=parseFloat(f.precoVenda)||0, pVA=parseFloat(f.precoVendaAtual)||0;
@@ -740,8 +763,8 @@ function FichaEditor({ fichaId, fichas, setFichas, insumos, getCustoIns, getPeso
         if(isNew)setFichas([...fichas,{...p,id:uid()}]);else setFichas(fichas.map(x=>x.id===f.id?p:x));
         onBack();
     };
-    const addIng=()=>{if(!ni.insumoId||!ni.qtdUtilizada)return;setF({...f,ingredientes:[...f.ingredientes,{insumoId:ni.insumoId,qtdUtilizada:parseFloat(ni.qtdUtilizada)}]});setNi({insumoId:'',qtdUtilizada:''});};
-    const remIng=i=>{const u=[...f.ingredientes];u.splice(i,1);setF({...f,ingredientes:u});};
+    const addIng=()=>{if(!ni.insumoId||!ni.qtdUtilizada)return;setF({...f,ingredientes:[..._ings,{insumoId:ni.insumoId,qtdUtilizada:parseFloat(ni.qtdUtilizada)}]});setNi({insumoId:'',qtdUtilizada:''});};
+    const remIng=i=>{const u=[..._ings];u.splice(i,1);setF({...f,ingredientes:u});};
 
     return(
         <div className="space-y-6 fade-in">
@@ -781,7 +804,7 @@ function FichaEditor({ fichaId, fichas, setFichas, insumos, getCustoIns, getPeso
                         <table className="w-full text-left border-collapse">
                             <thead><tr className="border-b border-gray-200 text-gray-500 text-sm"><th className="pb-2">Insumo</th><th className="pb-2">Qtd</th><th className="pb-2 text-right">Custo</th><th></th></tr></thead>
                             <tbody>
-                                {f.ingredientes.map((ing,idx)=>{
+                                {_ings.map((ing,idx)=>{
                                     const ins=insumos.find(i=>i.id===ing.insumoId);
                                     return(
                                         <tr key={idx} className={`border-b border-gray-50 ${!ins?'bg-red-50':''}`}>
